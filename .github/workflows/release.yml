@@ -12,6 +12,12 @@ jobs:
   release:
     name: Publish release
     runs-on: ubuntu-latest
+    # Manual approval gate. The `release` environment requires a maintainer
+    # review, so a pushed tag stops here until someone approves the deployment
+    # in the Actions UI. Nothing is built or published before that happens.
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:

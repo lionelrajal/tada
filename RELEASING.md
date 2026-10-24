@@ -82,8 +82,10 @@ feat!: rename --priority to --level
    git push origin v0.1.0
    ```
 
-6. The `Release` workflow builds, tests, archives and publishes the GitHub
-   release. It refuses to run if the tagged commit is not on `main`.
+6. The `Release` workflow verifies the tagged commit is on `main`, then pauses
+   on the protected `release` environment until a maintainer approves the
+   deployment in the Actions UI. Only then does it build, test, archive and
+   publish the GitHub release.
 7. Confirm the release page lists every artifact, then download one and run
    `tada --version` plus `tada add`/`tada list` to check it is usable.
 8. Only then announce it.
@@ -119,7 +121,7 @@ binary carries its licence and usage notes.
 | File | Trigger | Purpose |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | push to `main`, every pull request | `gofmt` check, `go vet`, `go test -race`, `go build` |
-| `.github/workflows/release.yml` | push of a `v*` tag | verifies the tag is on `main`, runs tests, then GoReleaser publishes |
+| `.github/workflows/release.yml` | push of a `v*` tag | verifies the tag is on `main`, waits for approval on the `release` environment, runs tests, then GoReleaser publishes |
 | `.goreleaser.yaml` | invoked by the release workflow | cross-compiles, archives, checksums, writes notes |
 | `Makefile` | local | `make check` mirrors CI; `make snapshot` dry-runs the pipeline |
 
