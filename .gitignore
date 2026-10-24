@@ -1,0 +1,6 @@
+# Build output
+/bin/
+/dist/
+
+# Local task data created by running the CLI in this directory
+/tasks.json

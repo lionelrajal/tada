@@ -1,0 +1,13 @@
+# Todo List
+- [ ] Split project into packages: `cmd`, `model`, `store`, `ui`.
+- [ ] Replace ad‑hoc JSON persistence with a dedicated storage package.
+- [ ] Use a CLI library (`cobra` or `urfave/cli`).
+- [ ] Refactor error handling to return wrapped errors.
+- [ ] Add unit tests for store and CLI commands.
+- [ ] Extract common logic into a shared package.
+- [ ] Move data file path to config/environment variable.
+- [ ] Replace fmt.Println with structured logger.
+- [ ] Improve CLI UX (help, flags).
+- [ ] Pin dependencies and run `go mod tidy`.
+- [ ] Add README documentation.
+- [ ] Decide on legacy `Qwen` implementation.
