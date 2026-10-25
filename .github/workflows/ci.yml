@@ -10,8 +10,24 @@ permissions:
 
 jobs:
   test:
-    name: Format, vet, test, build
-    runs-on: ubuntu-latest
+    # The data file lock is OS-specific: flock(2) on Linux, LockFileEx on
+    # Windows. The release pipeline builds for both, so the suite runs on both
+    # rather than trusting that a POSIX-only run covers the Windows path.
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide the other's result.
+      fail-fast: false
+      matrix:
+        include:
+          # The race detector needs a C toolchain. Linux has one in the image;
+          # Windows has MinGW but its go test -race setup is unreliable, so the
+          # store's cross-process tests (which are what the lock needs) run
+          # there without it.
+          - os: ubuntu-latest
+            race: true
+          - os: windows-latest
+            race: false
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +37,9 @@ jobs:
           cache: true
 
       - name: Check formatting
+        # The default shell on Windows runners is PowerShell, which would not
+        # handle the loop below.
+        shell: bash
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
@@ -32,8 +51,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
+      - name: Test with race detector
+        if: matrix.race
         run: go test -race ./...
+
+      - name: Test
+        if: matrix.race == false
+        run: go test ./...
 
       - name: Build
         run: go build ./...

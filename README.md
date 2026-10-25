@@ -104,6 +104,10 @@ Run unit tests with:
 go test ./...
 ```
 
+CI runs the same suite on Linux and Windows, because the data file lock is
+implemented by a different OS primitive on each. Run `make check` before pushing;
+it adds the formatting and vet gates CI enforces.
+
 ## License
 
 MIT - see [LICENSE](LICENSE).
