@@ -4,3 +4,4 @@
 
 # Local task data created by running the CLI in this directory
 /tasks.json
+/tasks.json.lock

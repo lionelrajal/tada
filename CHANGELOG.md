@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Concurrent `tada` processes can no longer lose tasks. Writes take an
+  exclusive lock on `<data-file>.lock` for the whole read-modify-write, and a
+  lock held for more than five seconds fails loudly with exit code `1` instead
+  of being ignored. Locking uses `github.com/gofrs/flock`, which maps to
+  `flock` on unix and `LockFileEx` on Windows.
+
 ## [0.1.0] - 2026-10-24
 
 ### Added

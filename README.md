@@ -69,6 +69,16 @@ tada 0.1.0 (commit 1a2b3c4, built 2026-10-24T09:00:00Z)
 - `--data-file <path>` – Path to the JSON file that stores tasks. Default: `tasks.json` in the current directory.
 - `--verbose` – Enable verbose output for debugging.
 
+### Concurrent commands
+
+Each command takes an exclusive lock on `<data-file>.lock` while it rewrites the
+task file, so two `tada` processes started at the same time cannot overwrite
+each other's changes. The lock is released by the operating system, so a killed
+process never blocks later runs; only the empty `.lock` file is left behind.
+If another process holds the lock for more than five seconds, the command fails
+with "timed out waiting for the data file lock" and exits `1` instead of waiting
+forever or writing anyway.
+
 ## Extending the Tool
 
 The project follows a clear package structure:

@@ -3,11 +3,15 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/gofrs/flock"
 
 	"github.com/lionelrajal/tada/model"
 )
@@ -23,7 +27,24 @@ var ErrNotFound = errors.New("task not found")
 // which may store fields this binary would silently drop on the next write.
 var ErrSchemaTooNew = errors.New("data file was written by a newer version of tada")
 
+// ErrLockTimeout is returned when another process holds the write lock for
+// longer than the caller is willing to wait.
+var ErrLockTimeout = errors.New("timed out waiting for the data file lock")
+
+// Lock tuning for writes. The timeout is deliberately short: a tada command
+// takes milliseconds, so a lock held for seconds means a stuck process, and
+// hanging forever would be worse than failing loudly.
+const (
+	defaultLockTimeout = 5 * time.Second
+	lockRetryDelay     = 20 * time.Millisecond
+)
+
 // Store is the persistence layer used by the CLI commands.
+//
+// Implementations must serialise their own mutations: every command is a
+// short-lived process, so two tada invocations can target one data file at
+// the same time, and a mutation that reads, changes and rewrites the whole
+// list must not interleave with another.
 type Store interface {
 	// Add stores task and assigns it the next free ID.
 	Add(task *model.Task) error
@@ -48,8 +69,16 @@ type fileFormat struct {
 // Every operation reads the file, applies its change and rewrites it: each CLI
 // invocation is a short-lived process, so holding tasks in memory would go
 // stale as soon as a second process runs.
+//
+// Because the whole list is rewritten, every mutation holds an exclusive lock
+// across its read-modify-write, or two processes racing would each read the
+// same list and the later save would silently discard the earlier change.
 type JSONStore struct {
 	path string
+
+	// lockTimeout bounds the wait for the write lock; zero means
+	// defaultLockTimeout. Tests shorten it to avoid slow failures.
+	lockTimeout time.Duration
 }
 
 var _ Store = (*JSONStore)(nil)
@@ -145,20 +174,22 @@ func (s *JSONStore) Add(task *model.Task) error {
 	if task == nil {
 		return errors.New("task cannot be nil")
 	}
-	tasks, err := s.load()
-	if err != nil {
-		return err
-	}
-
-	var maxID int64
-	for _, t := range tasks {
-		if t.ID > maxID {
-			maxID = t.ID
+	return s.withWriteLock(func() error {
+		tasks, err := s.load()
+		if err != nil {
+			return err
 		}
-	}
-	task.ID = maxID + 1
 
-	return s.save(append(tasks, task))
+		var maxID int64
+		for _, t := range tasks {
+			if t.ID > maxID {
+				maxID = t.ID
+			}
+		}
+		task.ID = maxID + 1
+
+		return s.save(append(tasks, task))
+	})
 }
 
 // Get returns the task with the given ID.
@@ -185,29 +216,82 @@ func (s *JSONStore) Update(task *model.Task) error {
 	if task == nil {
 		return errors.New("task cannot be nil")
 	}
-	tasks, err := s.load()
-	if err != nil {
-		return err
-	}
-	for i, t := range tasks {
-		if t.ID == task.ID {
-			tasks[i] = task
-			return s.save(tasks)
+	return s.withWriteLock(func() error {
+		tasks, err := s.load()
+		if err != nil {
+			return err
 		}
-	}
-	return fmt.Errorf("task %d: %w", task.ID, ErrNotFound)
+		for i, t := range tasks {
+			if t.ID == task.ID {
+				tasks[i] = task
+				return s.save(tasks)
+			}
+		}
+		return fmt.Errorf("task %d: %w", task.ID, ErrNotFound)
+	})
 }
 
 // Delete removes the task with the given ID.
 func (s *JSONStore) Delete(id int64) error {
-	tasks, err := s.load()
-	if err != nil {
-		return err
-	}
-	for i, t := range tasks {
-		if t.ID == id {
-			return s.save(append(tasks[:i], tasks[i+1:]...))
+	return s.withWriteLock(func() error {
+		tasks, err := s.load()
+		if err != nil {
+			return err
 		}
+		for i, t := range tasks {
+			if t.ID == id {
+				return s.save(append(tasks[:i], tasks[i+1:]...))
+			}
+		}
+		return fmt.Errorf("task %d: %w", id, ErrNotFound)
+	})
+}
+
+// lockPath is the file whose lock serialises writers. It sits next to the data
+// file so that one data file has exactly one lock, and it is a separate file
+// because save replaces the data file with a rename: a lock held on the old
+// inode would protect a file that no longer has a name.
+func (s *JSONStore) lockPath() string {
+	return s.path + ".lock"
+}
+
+// withWriteLock runs fn while holding an exclusive lock, so a read-modify-write
+// cannot interleave with another tada process doing the same.
+//
+// Reads stay lock-free: save renames a complete file into place, so a reader
+// sees either the old list or the new one, never a partial write.
+//
+// The lock is an OS advisory lock, so the kernel releases it when the process
+// exits, however it exits. A killed process therefore cannot leave a stale
+// lock behind that would deadlock later runs; only the empty lock file remains.
+func (s *JSONStore) withWriteLock(fn func() error) error {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", dir, err)
 	}
-	return fmt.Errorf("task %d: %w", id, ErrNotFound)
+
+	lockPath := s.lockPath()
+	timeout := s.lockTimeout
+	if timeout <= 0 {
+		timeout = defaultLockTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	lock := flock.New(lockPath)
+	locked, err := lock.TryLockContext(ctx, lockRetryDelay)
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("lock %s: %w", lockPath, err)
+	}
+	if !locked {
+		return fmt.Errorf("%w after %s: another tada process is writing to %s",
+			ErrLockTimeout, timeout, s.path)
+	}
+
+	// Unlock's error is not actionable: fn has already reported whether the
+	// write itself succeeded.
+	defer func() { _ = lock.Unlock() }()
+
+	return fn()
 }

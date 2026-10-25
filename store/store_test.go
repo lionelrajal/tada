@@ -2,10 +2,16 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/gofrs/flock"
 
 	"github.com/lionelrajal/tada/model"
 )
@@ -246,4 +252,176 @@ func TestJSONStoreLoadsLegacyArray(t *testing.T) {
 	if task.Title != "New" {
 		t.Fatalf("unexpected task: %+v", task)
 	}
+}
+
+// TestConcurrentStoresKeepEveryTask checks that writers sharing one data file
+// serialise their read-modify-write instead of each rewriting the list they
+// loaded before the others saved.
+func TestConcurrentStoresKeepEveryTask(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.json")
+
+	const writers, perWriter = 8, 3
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, writers*perWriter)
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// A separate store per writer, so no in-memory state is shared.
+			s, err := NewJSONStore(path)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			for j := 0; j < perWriter; j++ {
+				if err := s.Add(&model.Task{Title: fmt.Sprintf("writer %d task %d", i, j)}); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Errorf("Add: %v", err)
+	}
+
+	s, err := NewJSONStore(path)
+	if err != nil {
+		t.Fatalf("NewJSONStore: %v", err)
+	}
+	list, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != writers*perWriter {
+		t.Fatalf("lost tasks: got %d, want %d (%v)", len(list), writers*perWriter, taskTitles(list))
+	}
+
+	seen := make(map[int64]string, len(list))
+	for _, task := range list {
+		if other, dup := seen[task.ID]; dup {
+			t.Fatalf("id %d assigned twice: %q and %q", task.ID, other, task.Title)
+		}
+		seen[task.ID] = task.Title
+	}
+}
+
+// TestConcurrentAddsAcrossProcesses is the regression test for lost updates.
+// It runs the real store in separate OS processes, because that is what the CLI
+// does and an in-process lock would pass here while the CLI still lost data.
+func TestConcurrentAddsAcrossProcesses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns child processes")
+	}
+
+	path := filepath.Join(t.TempDir(), "tasks.json")
+
+	const children = 6
+
+	var wg sync.WaitGroup
+	failures := make(chan string, children)
+	for i := 0; i < children; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcessAdd$", "-test.count=1")
+			cmd.Env = append(os.Environ(),
+				"TADA_HELPER_DATA_FILE="+path,
+				fmt.Sprintf("TADA_HELPER_TITLE=child %d", i),
+			)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				failures <- fmt.Sprintf("child %d: %v\n%s", i, err, out)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(failures)
+	for msg := range failures {
+		t.Error(msg)
+	}
+
+	s, err := NewJSONStore(path)
+	if err != nil {
+		t.Fatalf("NewJSONStore: %v", err)
+	}
+	list, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != children {
+		t.Fatalf("lost tasks: got %d, want %d (%v)", len(list), children, taskTitles(list))
+	}
+}
+
+// TestHelperProcessAdd is not a test of its own: it is the body that
+// TestConcurrentAddsAcrossProcesses runs in a child process.
+func TestHelperProcessAdd(t *testing.T) {
+	path := os.Getenv("TADA_HELPER_DATA_FILE")
+	if path == "" {
+		t.Skip("only runs when spawned as a helper process")
+	}
+	s, err := NewJSONStore(path)
+	if err != nil {
+		t.Fatalf("NewJSONStore: %v", err)
+	}
+	if err := s.Add(&model.Task{Title: os.Getenv("TADA_HELPER_TITLE")}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+}
+
+// TestMutationsRespectTheLock checks that every write path waits for the lock
+// and fails loudly instead of writing while another process holds it.
+func TestMutationsRespectTheLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	s, err := NewJSONStore(path)
+	if err != nil {
+		t.Fatalf("NewJSONStore: %v", err)
+	}
+	if err := s.Add(&model.Task{Title: "existing"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	s.lockTimeout = 100 * time.Millisecond
+
+	held := flock.New(s.lockPath())
+	locked, err := held.TryLock()
+	if err != nil || !locked {
+		t.Fatalf("acquire lock: locked=%v err=%v", locked, err)
+	}
+	defer func() { _ = held.Unlock() }()
+
+	start := time.Now()
+	if err := s.Add(&model.Task{Title: "blocked"}); !errors.Is(err, ErrLockTimeout) {
+		t.Errorf("Add: expected ErrLockTimeout, got %v", err)
+	}
+	if err := s.Update(&model.Task{ID: 1, Title: "renamed"}); !errors.Is(err, ErrLockTimeout) {
+		t.Errorf("Update: expected ErrLockTimeout, got %v", err)
+	}
+	if err := s.Delete(1); !errors.Is(err, ErrLockTimeout) {
+		t.Errorf("Delete: expected ErrLockTimeout, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("waits should be bounded, took %s", elapsed)
+	}
+
+	// Nothing may have been written while the lock was held.
+	list, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 1 || list[0].Title != "existing" {
+		t.Fatalf("blocked writes reached the data file: %v", taskTitles(list))
+	}
+}
+
+// taskTitles renders a task list for failure messages without depending on the
+// JSON encoding.
+func taskTitles(tasks []*model.Task) []string {
+	titles := make([]string, len(tasks))
+	for i, task := range tasks {
+		titles[i] = task.Title
+	}
+	return titles
 }
