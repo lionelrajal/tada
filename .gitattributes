@@ -1,0 +1,4 @@
+# Normalise line endings in the repository, not in the checkout. Without this,
+# a Windows clone (git core.autocrlf=true) rewrites every Go file to CRLF and
+# `gofmt -l` reports the whole tree as unformatted.
+* text=auto eol=lf
