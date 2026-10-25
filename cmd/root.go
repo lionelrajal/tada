@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -22,11 +23,24 @@ type App struct {
 	dataFile string
 	verbose  bool
 	store    store.Store
+
+	// now is the clock behind relative due dates. Tests replace it so
+	// "tomorrow" means the same day on every run; nil means time.Now.
+	now func() time.Time
 }
 
 // NewApp returns an App that writes results to out and diagnostics to stderr.
 func NewApp(out io.Writer) *App {
-	return &App{Out: out, Err: os.Stderr}
+	return &App{Out: out, Err: os.Stderr, now: time.Now}
+}
+
+// Now returns the current time from the app's clock. Commands go through it so
+// relative dates such as "tomorrow" resolve deterministically in tests.
+func (a *App) Now() time.Time {
+	if a.now == nil {
+		return time.Now()
+	}
+	return a.now()
 }
 
 // Store returns the persistence layer resolved from the --data-file flag.

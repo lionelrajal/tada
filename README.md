@@ -10,7 +10,7 @@ Download the archive for your platform from the
 `checksums.txt`, and put the `tada` binary somewhere on your `PATH`.
 
 ```bash
-tar -xzf tada_0.1.0_darwin_arm64.tar.gz
+tar -xzf tada_0.2.0_darwin_arm64.tar.gz
 sudo mv tada /usr/local/bin/
 tada --version
 ```
@@ -52,6 +52,25 @@ $ tada list
 1  [ ]  medium  2026-12-31  Buy milk
 2  [ ]  low     -           write the weekly report
 
+# Due dates can be written out; the file still stores ISO dates
+$ tada add "Renew passport" --due +3w
+Added task 3: Renew passport
+$ tada add "Book dentist" --due next-fri
+Added task 4: Book dentist
+
+# Narrow the list: terms must all match, and ~term hides matches
+$ tada list milk
+1  [ ]  medium  2026-12-31  Buy milk
+
+$ tada list report ~weekly
+No pending tasks. Use --all to include completed ones.
+
+# Filter by field, reorder, and get machine-readable output
+$ tada list --overdue
+$ tada list --due-before 2026-12-31 --sort due
+$ tada list --priority 1 --sort priority
+$ tada list --json --sort due | jq -r '.[] | "\(.id)\t\(.title)"'
+
 # Change a task in place; the ID stays the same
 $ tada edit 1 --title "Buy oat milk" --due 2026-11-02 --priority 2
 Updated task 1: Buy oat milk
@@ -74,13 +93,55 @@ Removed task 2: buy two cartons
 
 # Report the build you are running
 $ tada --version
-tada 0.1.0 (commit 1a2b3c4, built 2026-10-24T09:00:00Z)
+tada 0.2.0 (commit 1a2b3c4, built 2026-10-25T09:00:00Z)
 ```
 
 ### Flags
 
+Global:
+
 - `--data-file <path>` – Path to the JSON file that stores tasks. Default: `tasks.json` in the current directory.
 - `--verbose` – Enable verbose output for debugging.
+
+`tada add [title]`:
+
+- `--due, -d <date>` – Due date; see [Due dates](#due-dates).
+- `--priority, -p <0|1|2>` – Low, medium or high.
+- `--json` – Print the created task, including its assigned `id`, instead of the confirmation line.
+
+`tada edit <id>... [title words]`:
+
+- `--title <text>` – New title; trailing unquoted words are appended.
+- `--due, -d <date>` – New due date; an empty value clears it.
+- `--priority, -p <0|1|2>` – New priority.
+
+`tada list [term...]`:
+
+- `--all, -a` – Include completed tasks.
+- `--overdue` – Only uncompleted tasks whose due date has passed.
+- `--due-before <date>` – Only tasks due before the date; accepts the same words as `--due`.
+- `--priority, -p <0|1|2>` – Only tasks with that priority.
+- `--sort, -s due|priority|created` – Reorder the list. `due` puts the earliest first and undated tasks last; `priority` puts high first; `created` orders by ID (creation time arrives with a later schema). Ties break by ID.
+- `--json` – Print a JSON array of task objects and nothing else.
+
+Terms match the title ignoring case and must all match. A term with a leading
+`~` is excluded instead, so `tada list milk ~shop` shows tasks mentioning milk
+that do not mention shop. The dash form cannot be used because `-term` is read
+as a flag by the command-line parser.
+
+### Due dates
+
+`--due` accepts an ISO date (`2026-11-02`) or a short word:
+
+| Input | Meaning |
+| --- | --- |
+| `today`, `tomorrow`, `yesterday` | Relative to today |
+| `fri`, `friday` | The next Friday; a weekday never means today |
+| `next-fri` | The Friday of the following week |
+| `+3d`, `-1d`, `+2w` | An offset in days (`d`) or weeks (`w`) |
+
+Everything is normalised to `YYYY-MM-DD` before it is stored, so the data file
+never depends on what was typed.
 
 ### Concurrent commands
 
