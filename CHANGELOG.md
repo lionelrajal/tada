@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - `tada edit <id>...` changes the title, due date or priority of existing
@@ -14,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   adding it back under a new number. Title words may be passed unquoted, an
   empty `--due` clears the date, and every ID is checked before anything is
   written.
+- `tada list` filters tasks: positional terms match the title ignoring case and
+  must all match, a `~term` hides matches, and `--overdue`, `--due-before` and
+  `--priority` narrow the list by field. The `~` form is used because `-term`
+  is consumed by the flag parser before the command can see it.
+- `tada list --sort due|priority|created` reorders the output. Insertion order
+  remains the default, `due` sorts undated tasks last, and ties break by ID.
+  `created` orders by ID until completion timestamps exist.
+- `--json` on `tada list` and `tada add` emits one compact JSON document using
+  the data file's own field names, for scripting, status bars and `fzf`.
+- `--due` accepts relative dates: `today`, `tomorrow`, `yesterday`, weekday
+  names such as `fri`, `next-fri`, and offsets such as `+3d` or `-1w`. Values
+  are normalised to `YYYY-MM-DD` before storage, so the file format is
+  unchanged. A weekday never resolves to today.
 
 ### Fixed
 
@@ -53,5 +68,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The project did not compile: the store package was missing its implementation
   and the `add` command imported placeholder module paths.
 
-[Unreleased]: https://github.com/lionelrajal/tada/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lionelrajal/tada/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lionelrajal/tada/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lionelrajal/tada/releases/tag/v0.1.0

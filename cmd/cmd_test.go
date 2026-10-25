@@ -6,7 +6,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// testClock is the fixed "today" for command tests: 2026-10-25, a Sunday.
+// Relative due dates resolve against it so the tests do not depend on the day
+// they happen to run.
+var testClock = time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
 
 // harness runs the real command tree once per invocation against a temporary
 // data file, mirroring how the binary behaves when it is run repeatedly.
@@ -15,11 +21,16 @@ type harness struct {
 	dataFile string
 	out      bytes.Buffer
 	errOut   bytes.Buffer
+	now      func() time.Time
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	return &harness{t: t, dataFile: filepath.Join(t.TempDir(), "tasks.json")}
+	return &harness{
+		t:        t,
+		dataFile: filepath.Join(t.TempDir(), "tasks.json"),
+		now:      func() time.Time { return testClock },
+	}
 }
 
 func (h *harness) run(args ...string) (string, error) {
@@ -29,6 +40,7 @@ func (h *harness) run(args ...string) (string, error) {
 
 	app := NewApp(&h.out)
 	app.Err = &h.errOut
+	app.now = h.now
 
 	root := newRootCmd(app)
 	root.SetArgs(append([]string{"--data-file", h.dataFile}, args...))

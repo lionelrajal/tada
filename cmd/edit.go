@@ -26,8 +26,9 @@ Task IDs come first; everything after the first non-numeric word is the new
 title, so it needs no quoting: ` + "`tada edit 3 buy oat milk`" + `.
 
 At least one change is required. An empty --due clears the due date, while
-omitting --due leaves it as it is. Every ID is checked before any task is
-written, so a mistyped ID changes nothing.`,
+omitting --due leaves it as it is. --due accepts YYYY-MM-DD, today, tomorrow,
+a weekday such as fri, next-fri, or an offset such as +3d. Every ID is checked
+before any task is written, so a mistyped ID changes nothing.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ids, words, err := splitIDsAndTitle(args)
@@ -38,6 +39,16 @@ written, so a mistyped ID changes nothing.`,
 			dueChanged := cmd.Flags().Changed("due")
 			priorityChanged := cmd.Flags().Changed("priority")
 			titleChanged := cmd.Flags().Changed("title") || len(words) > 0
+
+			// Normalise a written date before anything is validated or
+			// written, so the store keeps receiving ISO dates only.
+			if dueChanged {
+				resolved, err := model.ParseDueDate(due, app.Now())
+				if err != nil {
+					return err
+				}
+				due = resolved
+			}
 
 			// Editing with nothing to change is almost always a mistake, and
 			// silently doing nothing would look like success.
@@ -89,7 +100,7 @@ written, so a mistyped ID changes nothing.`,
 	}
 
 	cmd.Flags().StringVar(&title, "title", "", "New title")
-	cmd.Flags().StringVarP(&due, "due", "d", "", "New due date YYYY-MM-DD; empty clears it")
+	cmd.Flags().StringVarP(&due, "due", "d", "", "New due date; empty clears it (accepts YYYY-MM-DD, tomorrow, fri, +3d)")
 	cmd.Flags().IntVarP(&priority, "priority", "p", 0, "Priority: 0 low, 1 medium, 2 high")
 
 	return cmd
