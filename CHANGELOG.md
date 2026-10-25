@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `tada edit <id>...` changes the title, due date or priority of existing
+  tasks while keeping their IDs, so a typo no longer means deleting a task and
+  adding it back under a new number. Title words may be passed unquoted, an
+  empty `--due` clears the date, and every ID is checked before anything is
+  written.
+
 ### Fixed
 
 - Concurrent `tada` processes can no longer lose tasks. Writes take an

@@ -52,12 +52,25 @@ $ tada list
 1  [ ]  medium  2026-12-31  Buy milk
 2  [ ]  low     -           write the weekly report
 
+# Change a task in place; the ID stays the same
+$ tada edit 1 --title "Buy oat milk" --due 2026-11-02 --priority 2
+Updated task 1: Buy oat milk
+
+# Title words need no quoting here either, and several IDs take one change
+$ tada edit 1 2 buy two cartons
+Updated task 1: buy two cartons
+Updated task 2: buy two cartons
+
+# An empty --due clears the date; leaving the flag out keeps it
+$ tada edit 1 --due ""
+Updated task 1: buy two cartons
+
 # Complete and delete tasks by ID
 $ tada done 1
-Completed task 1: Buy milk
+Completed task 1: buy two cartons
 
 $ tada rm 2
-Removed task 2: write the weekly report
+Removed task 2: buy two cartons
 
 # Report the build you are running
 $ tada --version

@@ -89,6 +89,142 @@ func TestCommandRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEditCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantErr  string
+		wantOut  []string
+		wantList []string
+		// wantMissing are substrings that must be gone from `list --all`, which
+		// is how a cleared or replaced field is observed.
+		wantMissing []string
+	}{
+		{
+			name:     "title keeps the id",
+			args:     []string{"edit", "1", "--title", "Buy oat milk"},
+			wantOut:  []string{"Updated task 1: Buy oat milk"},
+			wantList: []string{"1  [ ]", "Buy oat milk"},
+		},
+		{
+			name:     "due and priority together",
+			args:     []string{"edit", "2", "--due", "2026-11-02", "--priority", "2"},
+			wantOut:  []string{"Updated task 2: write report"},
+			wantList: []string{"high", "2026-11-02"},
+		},
+		{
+			name:     "multiple ids take the same change",
+			args:     []string{"edit", "1", "2", "--priority", "2"},
+			wantOut:  []string{"Updated task 1: Buy milk", "Updated task 2: write report"},
+			wantList: []string{"high"},
+		},
+		{
+			name:     "unquoted title words",
+			args:     []string{"edit", "1", "buy", "oat", "milk"},
+			wantOut:  []string{"Updated task 1: buy oat milk"},
+			wantList: []string{"buy oat milk"},
+		},
+		{
+			name:     "title flag followed by unquoted words",
+			args:     []string{"edit", "1", "--title", "Buy", "oat", "milk"},
+			wantOut:  []string{"Updated task 1: Buy oat milk"},
+			wantList: []string{"Buy oat milk"},
+		},
+		{
+			name:        "empty due clears the date",
+			args:        []string{"edit", "1", "--due", ""},
+			wantOut:     []string{"Updated task 1: Buy milk"},
+			wantMissing: []string{"2026-12-31"},
+		},
+		{
+			name:     "no change is an error",
+			args:     []string{"edit", "1"},
+			wantErr:  "nothing to change",
+			wantList: []string{"Buy milk", "2026-12-31", "medium"},
+		},
+		{
+			name:        "unknown id changes nothing",
+			args:        []string{"edit", "1", "99", "--title", "nope"},
+			wantErr:     "task 99",
+			wantList:    []string{"Buy milk", "2026-12-31", "medium"},
+			wantMissing: []string{"nope"},
+		},
+		{
+			name:        "invalid date is rejected before writing",
+			args:        []string{"edit", "1", "--due", "31-12-2026"},
+			wantErr:     "invalid due date",
+			wantList:    []string{"2026-12-31", "medium"},
+			wantMissing: []string{"Updated task"},
+		},
+		{
+			name:     "priority out of range is rejected",
+			args:     []string{"edit", "1", "--priority", "9"},
+			wantErr:  "out of range",
+			wantList: []string{"medium", "Buy milk"},
+		},
+		{
+			name:    "id missing",
+			args:    []string{"edit", "milk"},
+			wantErr: "expected a task ID first",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.mustRun("add", "Buy", "milk", "--due", "2026-12-31", "-p", "1")
+			h.mustRun("add", "write", "report")
+
+			out, err := h.run(tt.args...)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected an error containing %q, got none (output %q)", tt.wantErr, out)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error %q does not contain %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			for _, want := range tt.wantOut {
+				if !strings.Contains(out, want) {
+					t.Fatalf("output %q missing %q", out, want)
+				}
+			}
+
+			list := h.mustRun("list", "--all")
+			for _, want := range tt.wantList {
+				if !strings.Contains(list, want) {
+					t.Fatalf("list output %q missing %q", list, want)
+				}
+			}
+			for _, missing := range tt.wantMissing {
+				if strings.Contains(list, missing) {
+					t.Fatalf("list output %q should not contain %q", list, missing)
+				}
+			}
+		})
+	}
+}
+
+// TestEditKeepsCompletion checks that editing a finished task does not reopen
+// it: edit replaces fields, not state.
+func TestEditKeepsCompletion(t *testing.T) {
+	h := newHarness(t)
+	h.mustRun("add", "old title")
+	h.mustRun("done", "1")
+	h.mustRun("edit", "1", "new title")
+
+	list := h.mustRun("list", "--all")
+	if !strings.Contains(list, "[x]") {
+		t.Fatalf("edit reopened a completed task: %q", list)
+	}
+	if !strings.Contains(list, "new title") {
+		t.Fatalf("edit did not apply the new title: %q", list)
+	}
+}
+
 func TestCommandsCreateDataFile(t *testing.T) {
 	h := newHarness(t)
 	h.mustRun("add", "persisted")
