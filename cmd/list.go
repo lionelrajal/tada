@@ -125,7 +125,7 @@ result, and --json to print it as a JSON array.`,
 	cmd.Flags().BoolVar(&overdue, "overdue", false, "Only tasks whose due date has already passed")
 	cmd.Flags().StringVar(&dueBefore, "due-before", "", "Only tasks due before this date (YYYY-MM-DD, or a word like tomorrow)")
 	cmd.Flags().IntVarP(&priority, "priority", "p", 0, "Only tasks with this priority: 0 low, 1 medium, 2 high")
-	cmd.Flags().StringVarP(&sortBy, "sort", "s", "", "Sort by due, priority or created")
+	cmd.Flags().StringVarP(&sortBy, "sort", "s", "", "Sort by due, priority or created (created orders by ID until timestamps exist)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print tasks as a JSON array")
 
 	// -term reaches the parser as an unknown flag rather than a search term,
