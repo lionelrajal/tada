@@ -1,9 +1,27 @@
 name: Release
 
+# Two separate acts, on purpose.
+#
+# Pushing a v* tag only verifies and tests the commit: the `verify` job runs and
+# the workflow stops there. Nothing is built for publication, and no release is
+# created. Publishing requires a maintainer to run this workflow by hand from
+# the Actions UI (workflow_dispatch) and type the tag again as confirmation.
+#
+# The `release` environment is kept as a deployment record and a second layer,
+# but it is not the gate: its required-reviewer rule is satisfied by the same
+# account that starts the run, so it cannot stop a tag push on its own.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish, e.g. v0.2.0. It must already be on main and verified.'
+        required: true
+      confirm:
+        description: 'Type the same tag again. This is the approval step: nothing publishes without it.'
+        required: true
 
 permissions:
   contents: read
@@ -25,9 +43,24 @@ jobs:
             race: true
           - os: windows-latest
             race: false
+    env:
+      # A push carries the tag in the ref; a manual run carries it in the input.
+      # github.event.inputs is unset for a push, so the fallback is the ref.
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
+      # A dispatch could otherwise name a branch, which would verify the wrong
+      # tree and then hand it to GoReleaser.
+      - name: Check the ref looks like a release tag
+        shell: bash
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$TAG' is not a release tag (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.TAG }}
           # The tag-is-on-main check needs history to find the merge base.
           fetch-depth: 0
 
@@ -37,7 +70,7 @@ jobs:
         run: |
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "Tag $GITHUB_REF_NAME points at a commit that is not on main; refusing to release."
+            echo "Tag $TAG points at a commit that is not on main; refusing to release."
             exit 1
           fi
 
@@ -75,22 +108,53 @@ jobs:
   release:
     name: Publish release
     needs: verify
+    # The gate itself: a tag push declares intent, a human dispatch publishes.
+    # Without this condition a pushed tag would publish once verification
+    # passed, which is exactly what the environment review failed to prevent.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Manual approval gate. The `release` environment requires a maintainer
-    # review, so a pushed tag stops here until someone approves the deployment
-    # in the Actions UI. Verification has already passed by then; nothing is
-    # built or published without the approval.
+    # Deployment history for the release, and a second confirmation for review
+    # rules that do not auto-approve the maintainer who started the run.
     environment:
       name: release
-      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag }}
     # Only the publishing job needs to write; verify above stays read-only.
     permissions:
       contents: write
     steps:
+      - name: Require the typed confirmation
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          CONFIRMATION: ${{ inputs.confirm }}
+        run: |
+          if [[ -z "$REQUESTED_TAG" || "$REQUESTED_TAG" != "$CONFIRMATION" ]]; then
+            echo "::error::confirmation does not match the requested tag; nothing was published"
+            exit 1
+          fi
+          if [[ ! "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$REQUESTED_TAG' is not a release tag (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag }}
           # GoReleaser needs the full history to build the changelog diff.
           fetch-depth: 0
+
+      # Tags are immutable, so a second dispatch for the same tag must fail
+      # loudly rather than half-replace a published release.
+      - name: Check the release does not exist yet
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$REQUESTED_TAG" >/dev/null 2>&1; then
+            echo "::error::release $REQUESTED_TAG already exists; publish a new version instead of republishing this tag"
+            exit 1
+          fi
 
       - uses: actions/setup-go@v5
         with:
