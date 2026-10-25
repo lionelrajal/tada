@@ -1,9 +1,12 @@
 name: CI
 
+# Pull requests only. A merge to main repeats work the pull request checks
+# already did, so it earns no new signal; the release workflow verifies the
+# tagged commit before anything is published. Dispatch exists so main can still
+# be checked on demand from the Actions tab.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

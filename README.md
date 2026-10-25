@@ -117,9 +117,11 @@ Run unit tests with:
 go test ./...
 ```
 
-CI runs the same suite on Linux and Windows, because the data file lock is
-implemented by a different OS primitive on each. Run `make check` before pushing;
-it adds the formatting and vet gates CI enforces.
+Every pull request runs the same suite on Linux and Windows, because the data
+file lock is implemented by a different OS primitive on each. Run `make check`
+before pushing; it adds the formatting and vet gates CI enforces. Merging to
+`main` does not re-run the suite — the release workflow tests the tagged commit
+again before it publishes.
 
 ## License
 
