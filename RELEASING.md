@@ -90,20 +90,29 @@ feat!: rename --priority to --level
    approval; nothing is built for publication until it happens. The job fails
    before doing anything if the two inputs disagree, if the input is not a
    release tag, or if a release for that tag already exists.
+
+   A dispatched run also pauses on the `release` environment with the publish
+   job showing *waiting*. That is expected: approve the deployment to let it
+   continue. A **pushed tag** never reaches this point, because the publish job
+   only exists for a dispatch.
 8. Confirm the release page lists every artifact, then download one and run
    `tada --version` plus `tada add`/`tada list` to check it is usable.
 9. Only then announce it.
 
 ### Why publishing is a separate dispatch
 
-The `release` environment keeps its required reviewer, but GitHub satisfies that
-rule when the run was started by the same account and "prevent self review" is
-off — which is the only workable setting for a single maintainer. On v0.2.0 a
-tag push went through without a human click, so the environment alone is not a
-gate. A `workflow_dispatch` is: it cannot be triggered by a tag push, and the
-`confirm` input has to be typed deliberately. Enabling self-review prevention is
-the stronger option, but it needs a second reviewer account or the deployment
-waits forever.
+The `release` environment keeps its required reviewer and is left in place as a
+second confirmation and as deployment history, but it cannot be the only gate.
+On the v0.2.0 tag push the deployment moved from `waiting` to `in_progress` about
+ninety seconds later, and the API does not record who approved it — whether that
+was a human click or GitHub satisfying the rule for the account that started the
+run cannot be determined afterwards. A rule whose outcome cannot be audited
+after the fact is not a gate you can rely on.
+
+A `workflow_dispatch` is: it cannot be triggered by a tag push, and the `confirm`
+input has to be typed deliberately. Enabling self-review prevention on the
+environment would be stronger still, but it needs a second reviewer account:
+otherwise a solo maintainer's own deployment waits forever.
 
 ## Pre-releases
 
