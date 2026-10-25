@@ -32,9 +32,10 @@ make release      # Offline cross-compile for all targets; publishes nothing
 make clean        # Remove bin/ and dist/
 ```
 
-Publishing is automated: pushing a `v*` tag builds every target with GoReleaser
-and publishes a GitHub release. The versioning, branching and rollback policy
-lives in [RELEASING.md](RELEASING.md).
+Pushing a `v*` tag verifies and tests the tagged commit on Linux and Windows;
+it does not publish. Publishing is a deliberate second step: run the *Release*
+workflow by hand and type the tag as confirmation. The versioning, branching and
+rollback policy lives in [RELEASING.md](RELEASING.md).
 
 ## Usage
 

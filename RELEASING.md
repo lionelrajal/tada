@@ -78,18 +78,32 @@ feat!: rename --priority to --level
 5. Tag and push:
 
    ```bash
-   git tag -a v0.1.0 -m "v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.2.0 -m "v0.2.0"
+   git push origin v0.2.0
    ```
 
 6. The `Release` workflow verifies the tagged commit is on `main` and runs the
-   full suite on Linux and Windows. If that passes, it pauses on the protected
-   `release` environment until a maintainer approves the deployment in the
-   Actions UI. Only then does it build, archive and publish the GitHub release.
-   A failing suite stops the run before the approval is even requested.
-7. Confirm the release page lists every artifact, then download one and run
+   full suite on Linux and Windows. **A pushed tag never publishes.** It stops
+   after verification, and the run shows the `Publish release` job as skipped.
+7. Publish by hand: Actions → *Release* → *Run workflow*, with `tag` set to the
+   tag just pushed and `confirm` set to the same value. That dispatch is the
+   approval; nothing is built for publication until it happens. The job fails
+   before doing anything if the two inputs disagree, if the input is not a
+   release tag, or if a release for that tag already exists.
+8. Confirm the release page lists every artifact, then download one and run
    `tada --version` plus `tada add`/`tada list` to check it is usable.
-8. Only then announce it.
+9. Only then announce it.
+
+### Why publishing is a separate dispatch
+
+The `release` environment keeps its required reviewer, but GitHub satisfies that
+rule when the run was started by the same account and "prevent self review" is
+off — which is the only workable setting for a single maintainer. On v0.2.0 a
+tag push went through without a human click, so the environment alone is not a
+gate. A `workflow_dispatch` is: it cannot be triggered by a tag push, and the
+`confirm` input has to be typed deliberately. Enabling self-review prevention is
+the stronger option, but it needs a second reviewer account or the deployment
+waits forever.
 
 ## Pre-releases
 
@@ -122,7 +136,7 @@ binary carries its licence and usage notes.
 | File | Trigger | Purpose |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | every pull request, plus manual dispatch | `gofmt` check, `go vet`, tests on Linux and Windows, `go build` |
-| `.github/workflows/release.yml` | push of a `v*` tag | verifies the tag is on `main`, runs the suite on Linux and Windows, waits for approval on the `release` environment, then GoReleaser publishes |
+| `.github/workflows/release.yml` | push of a `v*` tag, or manual dispatch | verifies the tag is on `main` and runs the suite on Linux and Windows; only a manual dispatch with the tag typed as confirmation publishes via GoReleaser |
 | `.goreleaser.yaml` | invoked by the release workflow | cross-compiles, archives, checksums, writes notes |
 | `Makefile` | local | `make check` mirrors CI; `make snapshot` dry-runs the pipeline |
 
@@ -158,5 +172,7 @@ CGO is disabled, so the same source produces the same binaries on any runner.
 - [ ] `make check` and `make snapshot` pass locally
 - [ ] version bump matches the change type
 - [ ] tag created on `main` and pushed
+- [ ] tag verification green on Linux and Windows
+- [ ] release published by a manual dispatch, with the tag typed as confirmation
 - [ ] release artifacts and checksums verified on the release page
 - [ ] a downloaded binary runs `--version`, `add` and `list`

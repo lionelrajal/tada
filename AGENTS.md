@@ -30,9 +30,10 @@ re-runs the suite on the tagged commit before publishing.
 ## Releases
 
 Releases are cut by pushing a `v*` tag to a commit on `main`. The release
-workflow verifies the tag, tests it on Linux and Windows, then waits for manual
-approval before building anything. See [RELEASING.md](RELEASING.md). Never tag
-from a feature branch.
+workflow verifies the tag and tests it on Linux and Windows, then stops: a
+pushed tag never publishes on its own. Publishing needs a maintainer to run the
+`Release` workflow by hand with the tag typed into `tag` and `confirm`. See
+[RELEASING.md](RELEASING.md). Never tag from a feature branch.
 
 ## Data format
 
