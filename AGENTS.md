@@ -20,16 +20,19 @@ Documentation-only changes follow the same rule.
 make check   # gofmt, go vet, go test -race
 ```
 
-CI runs those gates on Linux and Windows, because the data-file lock uses a
-different OS primitive on each (`flock` on unix, `LockFileEx` on Windows). A
-change to `store/` should be verified on both; do not assume a POSIX-only run
-covers Windows.
+CI runs those gates on every pull request, on Linux and Windows, because the
+data-file lock uses a different OS primitive on each (`flock` on unix,
+`LockFileEx` on Windows). A change to `store/` should be verified on both; do
+not assume a POSIX-only run covers Windows. Merging to `main` does not start a
+run of its own: the pull request checks are the gate, and the release workflow
+re-runs the suite on the tagged commit before publishing.
 
 ## Releases
 
-Releases are cut by pushing a `v*` tag to a commit on `main`, and the release
-workflow waits for manual approval before building anything. See
-[RELEASING.md](RELEASING.md). Never tag from a feature branch.
+Releases are cut by pushing a `v*` tag to a commit on `main`. The release
+workflow verifies the tag, tests it on Linux and Windows, then waits for manual
+approval before building anything. See [RELEASING.md](RELEASING.md). Never tag
+from a feature branch.
 
 ## Data format
 

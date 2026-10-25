@@ -82,10 +82,11 @@ feat!: rename --priority to --level
    git push origin v0.1.0
    ```
 
-6. The `Release` workflow verifies the tagged commit is on `main`, then pauses
-   on the protected `release` environment until a maintainer approves the
-   deployment in the Actions UI. Only then does it build, test, archive and
-   publish the GitHub release.
+6. The `Release` workflow verifies the tagged commit is on `main` and runs the
+   full suite on Linux and Windows. If that passes, it pauses on the protected
+   `release` environment until a maintainer approves the deployment in the
+   Actions UI. Only then does it build, archive and publish the GitHub release.
+   A failing suite stops the run before the approval is even requested.
 7. Confirm the release page lists every artifact, then download one and run
    `tada --version` plus `tada add`/`tada list` to check it is usable.
 8. Only then announce it.
@@ -120,8 +121,8 @@ binary carries its licence and usage notes.
 
 | File | Trigger | Purpose |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | push to `main`, every pull request | `gofmt` check, `go vet`, `go test -race`, `go build` |
-| `.github/workflows/release.yml` | push of a `v*` tag | verifies the tag is on `main`, waits for approval on the `release` environment, runs tests, then GoReleaser publishes |
+| `.github/workflows/ci.yml` | every pull request, plus manual dispatch | `gofmt` check, `go vet`, tests on Linux and Windows, `go build` |
+| `.github/workflows/release.yml` | push of a `v*` tag | verifies the tag is on `main`, runs the suite on Linux and Windows, waits for approval on the `release` environment, then GoReleaser publishes |
 | `.goreleaser.yaml` | invoked by the release workflow | cross-compiles, archives, checksums, writes notes |
 | `Makefile` | local | `make check` mirrors CI; `make snapshot` dry-runs the pipeline |
 
@@ -145,16 +146,10 @@ CGO is disabled, so the same source produces the same binaries on any runner.
 
 ## Known gaps
 
-- The repository is local-only: no remote is configured and no tag has been
-  pushed yet, so the release workflow has never executed for real.
 - `go install github.com/lionelrajal/tada@latest` only works once the
   repository is public at that path.
-- `goreleaser check` needs a git remote; it passes in a scratch clone with a
-  stub remote.
 - No Homebrew tap, Docker image or artifact signing yet. Signing the checksums
   (cosign) is the next supply-chain step if the project gains users.
-- The workflows have not been exercised against a remote, because this
-  checkout has none.
 
 ## Maintainer checklist
 

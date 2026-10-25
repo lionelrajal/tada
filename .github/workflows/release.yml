@@ -6,26 +6,34 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    name: Publish release
-    runs-on: ubuntu-latest
-    # Manual approval gate. The `release` environment requires a maintainer
-    # review, so a pushed tag stops here until someone approves the deployment
-    # in the Actions UI. Nothing is built or published before that happens.
-    environment:
-      name: release
-      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+  # The last gate before anything is built or published. Pull request checks
+  # may be days old by the time a tag is pushed, so the tagged commit is tested
+  # again here, on both platforms the release ships binaries for.
+  verify:
+    name: Verify tag (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Same split as ci.yml: the race detector needs a C toolchain that
+          # the Windows image cannot be relied on to provide.
+          - os: ubuntu-latest
+            race: true
+          - os: windows-latest
+            race: false
     steps:
       - uses: actions/checkout@v4
         with:
-          # GoReleaser needs the full history to build the changelog diff.
+          # The tag-is-on-main check needs history to find the merge base.
           fetch-depth: 0
 
       # A tag pushed from a feature branch must never become a release.
       - name: Verify the tag is on main
+        shell: bash
         run: |
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
@@ -38,8 +46,56 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Check formatting
+        # The default shell on Windows runners is PowerShell, which would not
+        # handle the loop below.
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        if: matrix.race
+        run: go test -race -count=1 ./...
+
       - name: Test
-        run: go test ./...
+        if: matrix.race == false
+        run: go test -count=1 ./...
+
+      - name: Build
+        run: go build ./...
+
+  release:
+    name: Publish release
+    needs: verify
+    runs-on: ubuntu-latest
+    # Manual approval gate. The `release` environment requires a maintainer
+    # review, so a pushed tag stops here until someone approves the deployment
+    # in the Actions UI. Verification has already passed by then; nothing is
+    # built or published without the approval.
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+    # Only the publishing job needs to write; verify above stays read-only.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # GoReleaser needs the full history to build the changelog diff.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
